@@ -2,9 +2,11 @@ import Vue from 'vue';
 import Vuex from 'vuex';
 import { Toast } from 'buefy/dist/components/toast';
 import Land from '@/util/land';
-import API, { currentEOSAccount } from '@/util/api';
+import getApi from '@/util/apis/index.js'
 import ui from './ui';
+import modules from '@/config/modules.js';
 import Global from '@/Global.js';
+import modules from '@/config/modules.js';
 
 Vue.use(Vuex);
 
@@ -13,12 +15,15 @@ export default new Vuex.Store({
     ui,
   },
   state: {
+    modulesConfig: modules,
+    contractType: 'eos',
     isScatterConnected: false,
     scatterAccount: null,
     portalInfoList: [],
     balances: {
       eos: '0 EOS',
       cmu: '0 CMU',
+      bos: '0 BOS'
     },
     isScatterLoggingIn: false,
     isLoadingData: false,
@@ -41,6 +46,9 @@ export default new Vuex.Store({
     },
   },
   mutations: {
+    setContractType(state, type) {
+      state.contractType = type
+    },
     setLandInfo(state, landInfo) {
       state.landInfo = landInfo;
       state.landInfoUpdateAt = new Date();
@@ -81,14 +89,21 @@ export default new Vuex.Store({
     }
   },
   actions: {
-    async connectScatterAsync({ commit, dispatch }) {
+    updateContractType({ commit, dispatch }, type) {
+      commit('setContractType', type);
+      dispatch('logoutScatterAsync');
+      setTimeout(() => {
+        dispatch('connectScatterAsync')
+      }, 0);
+    },
+    async connectScatterAsync({ commit, dispatch, state }) {
       console.log('Connecting to Scatter desktop...');
-      const connected = await API.connectScatterAsync();
+      const connected = await getApi(Global.contractType).api.connectScatterAsync();
       console.log('Connect Scatter result: ', connected);
       if (connected) {
         commit('setIsScatterConnected', true);
-        if (currentEOSAccount()) {
-          commit('setScatterAccount', currentEOSAccount());
+        if (getApi(Global.contractType).currentEOSAccount()) {
+          commit('setScatterAccount', getApi(Global.contractType).currentEOSAccount());
           dispatch('getMyBalances');
           dispatch('getPortalInfo');
           dispatch('getMyStakedInfo');
@@ -99,20 +114,27 @@ export default new Vuex.Store({
     },
     async getMyBalances({ commit, state }) {
       const { name } = state.scatterAccount;
-      const balances = await Promise.all([
-        API.getBalancesByContract({ symbol: 'eos', accountName: name }),
-        API.getBalancesByContract({ symbol: 'cmu', accountName: name, tokenContract: 'dacincubator' }),
-      ]);
-      const eos = balances[0][0];
-      const cmu = balances[1][0];
-      commit('setMyBalance', { symbol: 'eos', balance: eos });
-      commit('setMyBalance', { symbol: 'cmu', balance: cmu });
+      const contractType = Global.contractType;
+      if (contractType) {
+        const balances = await Promise.all([
+          getApi(contractType).api.getBalancesByContract({ symbol: contractType === 'eos' ? 'eos' : 'BOS', accountName: name }),
+          getApi(contractType).api.getBalancesByContract(contractType === 'eos' ? {
+            symbol: 'cmu', accountName: name, contractType
+          } : {
+            symbol: 'CMU', accountName: name, contractType
+          })
+        ]);
+        const eos = balances[0][0];
+        const cmu = balances[1][0];
+        commit('setMyBalance', { symbol: Global.contractType, balance: eos });
+        commit('setMyBalance', { symbol: 'cmu', balance: cmu });
+      }
     },
-    async updateLandInfoAsync({ commit }) {
+    async updateLandInfoAsync({ commit, state }) {
       commit('setIsLoadingData', true);
       try {
         const landInfo = {};
-        const rows = await API.getLandsInfoAsync();
+        const rows = await getApi(Global.contractType).api.getLandsInfoAsync();
         rows.forEach((row) => {
           const countryCode = Land.landIdToCountryCode(row.id);
           landInfo[countryCode] = {
@@ -126,13 +148,14 @@ export default new Vuex.Store({
       }
       commit('setIsLoadingData', false);
     },
-    async updateMarketInfoAsync({ commit }) {
+    async updateMarketInfoAsync({ commit, state }) {
       try {
-        const marketInfoTable = await API.getMarketInfoAsync();
+        const marketInfoTable = await getApi(Global.contractType).api.getMarketInfoAsync();
         const marketInfo = marketInfoTable[0];
-        marketInfo.coin_price = `${((parseFloat(marketInfo.supply.split(' ')[0])) / 10000000000).toDecimal(4).toString()} EOS`;
+        marketInfo.coin_price = `${((parseFloat(marketInfo.supply.split(' ')[0])) / 10000000000).toDecimal(4).toString()} ${Global.contractType.toUpperCase()}`;
         marketInfo.supply = `${(parseFloat(marketInfo.supply.split(' ')[0]) - 40000000).toDecimal(4).toString()} CMU`;
         // price, balance, coin_price
+        console.log(marketInfo, Global.contractType, 'marketInfo')
         commit('setMarketInfo', marketInfo);
       } catch (err) {
         console.error('Failed to fetch market info', err);
@@ -140,10 +163,9 @@ export default new Vuex.Store({
     },
     async getMyStakedInfo({ commit, state }) {
       try {
-        const stakedInfoList = await API.getMyStakedInfoAsync({ accountName: state.scatterAccount.name });
-        const refund = await API.getRefund();
+        const stakedInfoList = await getApi(Global.contractType).api.getMyStakedInfoAsync({ accountName: state.scatterAccount.name });
+        const refund = await getApi(Global.contractType).api.getRefund();
         stakedInfoList[0].refund = (refund.amount || '0 CMU');
-        stakedInfoList[0].timestamp = (refund.request_time || '0');
         if (stakedInfoList[0] == null) {
           commit('setStakedInfo', { to: '', staked: 0 });
         } else {
@@ -154,12 +176,12 @@ export default new Vuex.Store({
       }
     },
     async updateMyCheckInStatus({ commit, state }) {
-      const status = await API.getMyCheckInStatus({ accountName: state.scatterAccount.name });
+      const status = await getApi(Global.contractType).api.getMyCheckInStatus({ accountName: state.scatterAccount.name });
       commit('setMyCheckInStatus', status);
     },
     async getPlayerInfo({ commit, state }) {
       try {
-        const playerInfoList = await API.getPlayerInfoAsync({ accountName: state.scatterAccount.name });
+        const playerInfoList = await getApi(Global.contractType).api.getPlayerInfoAsync({ accountName: state.scatterAccount.name });
         if (playerInfoList[0] == null) {
           commit('setDividendInfo', {
             land_profit: 0,
@@ -176,26 +198,26 @@ export default new Vuex.Store({
         console.error('Failed to fetch pool_profit', err);
       }
     },
-    async getGlobalInfo({ commit }) {
+    async getGlobalInfo({ commit, state }) {
       try {
-        const globalInfoList = await API.getGlobalInfoAsync();        
+        const globalInfoList = await getApi(Global.contractType).api.getGlobalInfoAsync();        
         commit('setGlobalInfo', globalInfoList[0]);
       } catch (err) {
         console.error('Failed to fetch staked info', err);
       }
     },
-    async getPortalInfo({ commit }) {
+    async getPortalInfo({ commit, state }) {
       try {
-        const portalInfoList = await API.getPortalInfoAsync();
+        const portalInfoList = await getApi(Global.contractType).api.getPortalInfoAsync();
         commit('setPortalInfoList', portalInfoList);
       } catch (err) {
         console.error('Failed to fetch staked info', err);
       }
     },
-    async loginScatterAsync({ commit, dispatch }) {
+    async loginScatterAsync({ commit, dispatch, state }) {
       commit('setIsScatterLoggingIn', true);
       try {
-        const identity = await API.loginScatterAsync();
+        const identity = await getApi(Global.contractType).api.loginScatterAsync();
         if (!identity) {
           commit('setScatterAccount', null);
           return;
@@ -224,7 +246,7 @@ export default new Vuex.Store({
     },
     async logoutScatterAsync({ commit }) {
       try {
-        await API.logoutScatterAsync();
+        await getApi(Global.contractType).api.logoutScatterAsync();
       } catch (err) {
         console.error('Failed to logout Scatter', err);
       }

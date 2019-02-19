@@ -2,11 +2,12 @@ import ScatterJS from 'scatterjs-core';
 import ScatterEOS from 'scatterjs-plugin-eosjs';
 import Eos from 'eosjs';
 import * as config from '@/config';
-import PriceFormatter from './priceFormatter';
+import PriceFormatter from '../priceFormatter';
+import Global from '@/Global.js';
 
 ScatterJS.plugins(new ScatterEOS());
 
-function getInviteCode () {
+function getInviteCode() {
   const inviteArr = window.location.hash.split('/invite/')
   return inviteArr.length === 2 ? inviteArr[1] : ''
 }
@@ -14,10 +15,11 @@ function getInviteCode () {
 // api https://get-scatter.com/docs/api-create-transaction
 
 // @trick: use function to lazy eval Scatter eos, in order to avoid no ID problem.
-const eos = () => ScatterJS.scatter.eos(config.network.eos, Eos, { expireInSeconds: 60 });
-const currentEOSAccount = () => ScatterJS.scatter.identity && ScatterJS.scatter.identity.accounts.find(x => x.blockchain === 'eos');
 
-const API = {
+const eos = () => ScatterJS.scatter.eos(config.network[Global.contractType], Eos, { expireInSeconds: 60 });
+export const currentEOSAccount = () => ScatterJS.scatter.identity && ScatterJS.scatter.identity.accounts.find(x => x.blockchain === 'eos');
+
+export const api = {
   async getMyStakedInfoAsync({ accountName }) {
     const { rows } = await eos().getTableRows({
       json: true,
@@ -78,8 +80,20 @@ const API = {
     });
     return rows;
   },
-  async getBalancesByContract({ tokenContract = 'eosio.token', accountName, symbol }) {
-    return eos().getCurrencyBalance(tokenContract, accountName, symbol);
+  async getBalancesByContract({
+    tokenContract = 'eosio.token',
+    accountName,
+    symbol,
+    contractType
+  }) {
+    console.log(contractType, 'contractType')
+    if (contractType === 'eos') {
+      return await eos().getCurrencyBalance('dacincubator', accountName, symbol);
+    } else if (contractType === 'bos') {
+      return await eos().getCurrencyBalance('ncldwqxpkgav', accountName, symbol);
+    } else {
+      return await eos().getCurrencyBalance(tokenContract, accountName, symbol);
+    }
   },
   async getRefund() {
     const { rows } = await eos().getTableRows({
@@ -98,7 +112,7 @@ const API = {
     Object.defineProperties(Vue.prototype, {
       $API: {
         get() {
-          return API;
+          return api;
         },
       },
     });
@@ -107,7 +121,7 @@ const API = {
     return ScatterJS.scatter.connect(config.appScatterName, { initTimeout: 2000 });
   },
   loginScatterAsync() {
-    const requiredFields = { accounts: [config.network] };
+    const requiredFields = { accounts: [config.network[Global.contractType]] };
     return ScatterJS.scatter.getIdentity(requiredFields);
   },
   logoutScatterAsync() {
@@ -115,13 +129,14 @@ const API = {
   },
   transferEOSAsync({
     to,
+    symbol,
     memo = '',
     amount = 0,
   }) {
     return eos().transfer(
       currentEOSAccount().name,
       to,
-      PriceFormatter.formatPrice(amount),
+      PriceFormatter.formatPrice(amount, symbol),
       getInviteCode() ? `${memo} ${getInviteCode()}` : memo, {
         authorization: [`${currentEOSAccount().name}@${currentEOSAccount().authority}`],
       },
@@ -156,11 +171,29 @@ const API = {
       },
     );
   },
+  async refund() {
+    const contract = await eos().contract('cryptomeetup');
+    await contract.refund(
+      currentEOSAccount().name,
+      {
+        authorization: [`${currentEOSAccount().name}@${currentEOSAccount().authority}`],
+      },
+    );
+  },
+  async claim() {
+    const contract = await eos().contract('cryptomeetup');
+    await contract.claim(
+      currentEOSAccount().name,
+      {
+        authorization: [`${currentEOSAccount().name}@${currentEOSAccount().authority}`],
+      },
+    );
+  },
   async stakeCMUAsync({
     to,
     memo = '',
     amount = 0,
-    tokenContract = 'dacincubator',
+    tokenContract = 'cryptomeetup',
   }) {
     const contract = await eos().contract(tokenContract);
     return contract.transfer(
@@ -168,6 +201,18 @@ const API = {
       to,
       amount,
       getInviteCode() ? `${memo} ${getInviteCode()}` : memo, {
+        authorization: [`${currentEOSAccount().name}@${currentEOSAccount().authority}`],
+      },
+    );
+  },
+  async unStakeCMUAsync({
+    amount = 0
+  }) {
+    const contract = await eos().contract('cryptomeetup');
+    return contract.unstake(
+      currentEOSAccount().name,
+      amount,
+      {
         authorization: [`${currentEOSAccount().name}@${currentEOSAccount().authority}`],
       },
     );
@@ -200,5 +245,5 @@ const API = {
   },
 };
 
-export default API;
-export { eos, currentEOSAccount };
+export default { api, currentEOSAccount };
+

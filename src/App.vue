@@ -28,13 +28,14 @@
       <b-modal :active.sync="isInviteDialogActive" has-modal-card>
         <invite-modal></invite-modal>
       </b-modal>
-      <router-link class="nav-item" to="/">{{$t('map')}}</router-link>
-      <router-link class="nav-item" to="/globe">{{$t('globe')}}</router-link>
-      <a class="nav-item" @click="tokenShow=!tokenShow">{{$t('token_view')}}</a>
+      <router-link v-if="modulesConfig[contractType].map" class="nav-item" to="/">{{$t('map')}}</router-link>
+      <router-link v-if="modulesConfig[contractType].map" class="nav-item" to="/globe">{{$t('globe')}}</router-link>
+      <a v-if="modulesConfig[contractType].token" class="nav-item" @click="tokenShow=!tokenShow">{{$t('token_view')}}</a>
       <a class="nav-item" @click="aboutShow=!aboutShow">{{$t('about_view')}}</a>
-      <a class="nav-item" @click="taggleMyPortal">{{$t('my_portal_nav')}}</a>
+      <a v-if="modulesConfig[contractType].map" class="nav-item" @click="taggleMyPortal">{{$t('my_portal_nav')}}</a>
     </div>
     <Tokenview
+      v-if="modulesConfig[contractType].token"
       :tokenShow="tokenShow"
       :mobileTokenShow="mobileTokenShow"
       :globalInfo="globalInfo"
@@ -89,6 +90,12 @@
           <option value="zh_tw">繁體中文</option>
         </b-select>
       </div>
+      <div class="footer-item is-hidden-mobile">
+        <b-select class="is-inverted" v-model="updateContract" placeholder="选择公链" size="is-small" rounded>
+          <option value="eos">EOS</option>
+          <option value="bos">BOS</option>
+        </b-select>
+      </div>
     </div>
     <a
       :class="['app-nav-burger', 'is-hidden-tablet', { 'is-active': mobileNavExpanded }]"
@@ -109,14 +116,14 @@
     <slide-y-up-transition>
       <div>
         <div class="app-nav-expand is-hidden-tablet app-app-nav-expand" v-show="navBurgerVisible && mobileNavExpanded" @click="mobileNavExpanded=false"><!-- Nav Items on mobile -->
-          <router-link class="app-nav-expand-item" to="/">Map</router-link>
-          <router-link class="app-nav-expand-item" to="/globe">Globe</router-link>
+          <router-link v-if="modulesConfig[contractType].map" class="app-nav-expand-item" to="/">Map</router-link>
+          <router-link v-if="modulesConfig[contractType].map" class="app-nav-expand-item" to="/globe">Globe</router-link>
 
-          <a class="app-nav-expand-item" @click="taggleMyPortal">{{$t('my_portal_nav')}}</a>
+          <a class="app-nav-expand-item" v-if="modulesConfig[contractType].map" @click="taggleMyPortal">{{$t('my_portal_nav')}}</a>
           <a class="app-nav-expand-item" v-if="scatterAccount" @click="changeInviteStatus"><b-icon icon="bank" size="is-small" />{{' '+$t('invite')}}</a>
           <a class="app-nav-expand-item" @click="mobileAboutShow=!mobileAboutShow;"><b-icon class="question-icon" pack="fas" icon="question-circle" size="is-small"></b-icon>
   {{' '+$t('about_view')}}</a>
-          <a class="app-nav-expand-item" @click="mobileTokenShow=!mobileTokenShow;"><b-icon icon="bank" size="is-small" />{{' '+$t('token_view')}}</a>
+          <a class="app-nav-expand-item" v-if="modulesConfig[contractType].token" @click="mobileTokenShow=!mobileTokenShow;"><b-icon icon="bank" size="is-small" />{{' '+$t('token_view')}}</a>
           <a class="app-nav-expand-item" target="_blank" href="https://twitter.com/Cryptomeetupio"><b-icon icon="twitter" size="is-small" /> Twitter</a>
           <a class="app-nav-expand-item" target="_blank" href="https://t.me/Cryptomeetup_Official"><b-icon icon="telegram" size="is-small" /> Telegram</a>
           <a class="app-nav-expand-item" target="_blank" href="https://discordapp.com/invite/Ws3ENJf"><b-icon icon="discord" size="is-small" /> Discord</a>
@@ -148,7 +155,7 @@ import { mapActions, mapState } from 'vuex';
 import Global from './Global.js';
 import Aboutview from '@/views/About.vue';
 import Tokenview from '@/views/Token.vue';
-import API, { eos } from '@/util/api';
+import getApi from '@/util/apis/index.js'
 // import GlobalSpinner from '@/components/GlobalSpinner.vue';
 import Loading from '@/components/Loading.vue';
 // import GlobalProgress from '@/components/GlobalProgress.vue';
@@ -178,9 +185,12 @@ export default {
     appLogin: false,
     portalShow: false,
     portalList: [],
-    i18nCode: ''
+    i18nCode: '',
+    updateContract: ''
   }),
   created() {
+    this.modulesConfig[this.contractType].map && this.$router.push('/map')
+    this.updateContract = this.contractType
     this.countdownUpdater = setInterval(() => {
       if (this.globalInfo != null) {
         const currentTimestamp = Math.floor(Date.now() / 1000);
@@ -209,10 +219,13 @@ export default {
     this.getLangCode()
   },
   methods: {
-    ...mapActions(['getMyStakedInfo', 'getMyBalances', 'connectScatterAsync', 'updateLandInfoAsync', 'loginScatterAsync', 'logoutScatterAsync', 'updateMarketInfoAsync', 'getGlobalInfo']),
+    ...mapActions(['updateContractType', 'getMyStakedInfo', 'getMyBalances', 'connectScatterAsync', 'updateLandInfoAsync', 'loginScatterAsync', 'logoutScatterAsync', 'updateMarketInfoAsync', 'getGlobalInfo']),
     async vote (voteName, callback) {
       try {
-        await API.voteAsync({to: voteName})
+        await getApi(this.contractType).api.voteAsync({
+          to: voteNamem,
+          tokenContract: this.contractType === 'eos' ? 'dacincubator' : 'ncldwqxpkgav'
+        })
         this.$toast.open({
           message: '投票成功',
           type: 'is-success',
@@ -243,10 +256,11 @@ export default {
       amount = parseFloat(amount).toFixed(4);
       amount += ' CMU';
       try {
-        await API.stakeCMUAsync({
+        await getApi(this.contractType).api.stakeCMUAsync({
           from: this.scatterAccount.name,
           to: 'cryptomeetup',
           memo: 'stake',
+          tokenContract: this.contractType === 'eos' ? 'dacincubator' : 'ncldwqxpkgav',
           amount,
         });
         this.getMyStakedInfo()
@@ -277,15 +291,11 @@ export default {
     },
     async unstake() {
       try {
-        const contract = await eos().contract('cryptomeetup');
         const amount = parseFloat(window.prompt(this.$t('unstake_alert'))).toFixed(4) + ' CMU';
-        await contract.unstake(
-          this.scatterAccount.name,
+        await getApi(this.contractType).api.unStakeCMUAsync({
+          from: this.scatterAccount.name,
           amount,
-          {
-            authorization: [`${this.scatterAccount.name}@${this.scatterAccount.authority}`],
-          },
-        );
+        });
         this.getMyStakedInfo()
         this.getGlobalInfo()
         this.getMyBalances()
@@ -313,13 +323,9 @@ export default {
     },
     async refund() {
       try {
-        const contract = await eos().contract('cryptomeetup');
-        await contract.refund(
-          this.scatterAccount.name,
-          {
-            authorization: [`${this.scatterAccount.name}@${this.scatterAccount.authority}`],
-          },
-        );
+        await getApi(this.contractType).api.refund({
+          tokenContract: this.contractType === 'eos' ? 'dacincubator' : 'ncldwqxpkgav'
+        });
         this.getMyStakedInfo()
         this.getGlobalInfo()
         this.getMyBalances()
@@ -346,13 +352,7 @@ export default {
     },
     async claim() {
       try {
-        const contract = await eos().contract('cryptomeetup');
-        await contract.claim(
-          this.scatterAccount.name,
-          {
-            authorization: [`${this.scatterAccount.name}@${this.scatterAccount.authority}`],
-          },
-        );
+        await getApi(this.contractType).api.claim();
         this.$dialog.alert({
           type: 'is-black',
           title: this.$t('claim_success'),
@@ -378,9 +378,9 @@ export default {
     async buyCMU() {
       let amount = window.prompt(this.$t('buy_cmu_alert'));
       amount = parseFloat(amount).toFixed(4);
-      amount += ' EOS';
+      amount += ` ${this.contractType === 'eos' ? 'EOS' : 'BOS'}`
       try {
-        await API.transferTokenAsync({
+        await getApi(this.contractType).api.transferTokenAsync({
           from: this.scatterAccount.name,
           to: 'cryptomeetup',
           memo: 'buy',
@@ -415,10 +415,10 @@ export default {
       amount = parseFloat(amount).toFixed(4);
       amount += ' CMU';
       try {
-        await API.transferTokenAsync({
+        await getApi(this.contractType).api.transferTokenAsync({
           from: this.scatterAccount.name,
           to: 'cryptomeetup',
-          tokenContract: 'dacincubator',
+          tokenContract: this.contractType === 'eos' ? 'dacincubator' : 'ncldwqxpkgav',
           memo: 'sell',
           amount,
         });
@@ -450,7 +450,7 @@ export default {
       this.isRedeeming = true;
       const redeemCode = window.prompt('Please enter redeem code');
       try {
-        await API.redeemCodeAsync({ code: redeemCode });
+        await getApi(this.contractType).api.redeemCodeAsync({ code: redeemCode });
         this.$toast.open({
           message: 'Redeem badge successfully.',
           type: 'is-success',
@@ -498,10 +498,26 @@ export default {
     i18nCode (val) {
       this.$i18n.locale = val
       localStorage.setItem('language', val)
+    },
+    updateContract (newVal, val) {
+      if (val) {
+        console.log(this.$route.path)
+        if (this.$route.path.indexOf('map') && !this.modulesConfig[newVal].map) {
+          this.$router.push('/')
+        }
+        
+        Global.setGlobalContract(newVal)
+        setTimeout(() => {
+          this.updateContractType(newVal)
+          this.updateLandInfoAsync();
+          this.updateMarketInfoAsync();
+          this.getGlobalInfo();
+        }, 0)
+      }
     }
   },
   computed: {
-    ...mapState(['landInfoUpdateAt', 'isScatterConnected', 'scatterAccount', 'isScatterLoggingIn', 'balances', 'marketInfo', 'stakedInfo', 'globalInfo', 'dividendInfo', 'myCheckInStatus']),
+    ...mapState(['modulesConfig', 'contractType', 'landInfoUpdateAt', 'isScatterConnected', 'scatterAccount', 'isScatterLoggingIn', 'balances', 'marketInfo', 'stakedInfo', 'globalInfo', 'dividendInfo', 'myCheckInStatus']),
     ...mapState('ui', ['navBurgerVisible', 'latestBuyerVisible', 'globalSpinnerVisible', 'globalProgressVisible', 'globalProgressValue']),
   },
   mounted() {
